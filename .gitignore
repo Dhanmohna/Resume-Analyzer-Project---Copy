@@ -1,0 +1,9 @@
+venv/
+node_modules/
+__pycache__/
+.env
+.vscode/
+dist/
+.DS_Store
+# Specifically ignore the library data that is bloating your repo
+backend/venv/Lib/site-packages/tzdata/
