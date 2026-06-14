@@ -221,10 +221,44 @@ async def analyze_resume(
 
     # --- Job Matching Logic ---
     scraped_jobs = []
+    # try:
+    #     local_jobs = await run_in_threadpool(load_ldjson_dataset_jobs, role)
+    #     scraped_jobs.extend(local_jobs)
+    # except Exception: pass
+    # --- Job Matching Logic ---
+    scraped_jobs = []
+    
+    # 🚀 NEW: Fetching jobs from MongoDB instead of the local file
+    # --- Job Matching Logic: Fetching from MongoDB ---
+    # --- Job Matching Logic: Debugging Connection ---
+    scraped_jobs = []
+    
+    # 1. Access the database explicitly
+    # Use the EXACT collection name as it appears in Atlas (check the sidebar!)
+    # I am assuming your collection is named 'jobs' based on your previous input
+    collection = db["jobs_dataset"] 
+    
     try:
-        local_jobs = await run_in_threadpool(load_ldjson_dataset_jobs, role)
-        scraped_jobs.extend(local_jobs)
-    except Exception: pass
+        # 2. Let's see if we can find ANY documents at all
+        total_count = collection.count_documents({})
+        print(f"DEBUG: Total documents in 'jobs' collection: {total_count}")
+        
+        # 3. Perform a test search
+        query = {"job_title": {"$regex": role, "$options": "i"}}
+        mongo_results = list(collection.find(query).limit(5))
+        
+        print(f"DEBUG: Search for '{role}' returned {len(mongo_results)} results.")
+        
+        for job in mongo_results:
+            scraped_jobs.append({
+                "title": job.get("job_title", "N/A"),
+                "company": job.get("company_name", "N/A"),
+                "description": job.get("job_description", ""),
+                "url": job.get("url", "#"),
+                "source": "MongoDB Database"
+            })
+    except Exception as e:
+        print(f"⚠️ DATABASE ERROR: {e}")
 
     final_results = []
     student_skills_text = ", ".join(candidate_skills)
@@ -243,11 +277,11 @@ async def analyze_resume(
         live_overall_fit = calculate_resume_score(live_similarity, live_skill_score)
 
         final_results.append({
-            "title": job.get("title", f"Professional {role}").strip(),
-            "company": job.get("company", "Verified Partner").strip(),
+            "title": job.get("job_title", job.get("title", f"Professional {role}")).strip(),
+            "company": job.get("company_name", job.get("company", "Verified Partner")).strip(),
             "description": job_description_text[:220] + "..." if len(job_description_text) > 220 else job_description_text,
             "url": job.get("url", "#"),
-            "source": job.get("source", "Aggregated Listing Feed"),
+            "source": "MongoDB Database",
             "similarity": round(max(0.0, live_similarity), 2),
             "skill_match": round(live_skill_score, 2),
             "overall_fit": round(max(0.0, live_overall_fit), 2),
