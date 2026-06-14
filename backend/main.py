@@ -51,7 +51,7 @@ app.add_middleware(
 
 # Global Initialization of SpaCy
 print("⏳ Loading SpaCy word vector processing models...")
-nlp = spacy.load("en_core_web_md")
+nlp = spacy.load("en_core_web_sm")
 print("✅ Core SpaCy processing vectors successfully established.")
 
 

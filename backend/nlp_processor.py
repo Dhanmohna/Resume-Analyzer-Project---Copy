@@ -1,7 +1,7 @@
 import spacy
 
 #loading english model
-nlp = spacy.load("en_core_web_md")
+nlp = spacy.load("en_core_web_sm")
 
 # List of symbols often found in tech skills
 tech_symbols = ['+', '#', '.', '-'] 

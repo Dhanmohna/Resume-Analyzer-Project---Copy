@@ -1,6 +1,6 @@
 import spacy
 
-nlp = spacy.load("en_core_web_md")
+nlp = spacy.load("en_core_web_sm")
 
 def calculate_similarity(resume_doc, job_description):
     """
