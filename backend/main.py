@@ -6,7 +6,7 @@ import uuid
 import asyncio
 from datetime import datetime
 import spacy
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from dotenv import load_dotenv
@@ -188,15 +188,19 @@ async def login_account(data: UserAuthRequest):
     raise HTTPException(status_code=401, detail="Invalid email or password parameters matched.")
 
 
-# 📊 ANALYSIS AND TRACKING ENDPOINTS
 @app.post("/api/analyze", tags=["Analysis Core"])
-async def analyze_resume(role: str = Form(...), file: UploadFile = File(...)):
-    print(f"🚀 Processing request pipeline: Targeted Role -> '{role}'")
+async def analyze_resume(
+    role: str = Form(...), 
+    file: UploadFile = File(...), 
+    user_id: str = Form(...)  # Added user_id to accept it from the frontend
+):
+    print(f"🚀 Processing request pipeline: Targeted Role -> '{role}' for User -> '{user_id}'")
     
     contents = await file.read()
     file_io = io.BytesIO(contents)
     filename = file.filename.lower()
 
+    # --- File Parsing ---
     if filename.endswith('.pdf'): raw_text = extract_text_from_pdf(file_io)
     elif filename.endswith('.docx'): raw_text = extract_text_from_docx(file_io)
     elif filename.endswith('.txt'): raw_text = contents.decode('utf-8', errors='ignore')
@@ -204,6 +208,7 @@ async def analyze_resume(role: str = Form(...), file: UploadFile = File(...)):
 
     if not raw_text.strip(): raise HTTPException(status_code=400, detail="Empty document layer.")
 
+    # --- NLP Processing ---
     candidate_tokens = clean_text(raw_text)
     candidate_skills = extract_skills(candidate_tokens)
     candidate_skills_lower = {s.lower().strip() for s in candidate_skills}
@@ -214,6 +219,7 @@ async def analyze_resume(role: str = Form(...), file: UploadFile = File(...)):
         for category, skills in role_data.items(): flat_requirements.extend(skills)
     else: flat_requirements = role_data
 
+    # --- Job Matching Logic ---
     scraped_jobs = []
     try:
         local_jobs = await run_in_threadpool(load_ldjson_dataset_jobs, role)
@@ -261,7 +267,6 @@ async def analyze_resume(role: str = Form(...), file: UploadFile = File(...)):
     final_results = sorted(final_results, key=lambda x: x["overall_fit"], reverse=True)
     best_match = final_results[0]
 
-    # 🌟 FIX: Run the Groq API call inside a non-blocking background worker thread
     ai_markdown_output = await run_in_threadpool(
         analyze_resume_with_groq, 
         resume_text=raw_text, 
@@ -270,32 +275,34 @@ async def analyze_resume(role: str = Form(...), file: UploadFile = File(...)):
 
     payload_response = {
         "status": "success",
-        "raw_extracted_text": raw_text,  
         "global_similarity": best_match["similarity"],
         "global_skill_match": best_match["skill_match"],
         "global_overall_fit": best_match["overall_fit"],
-        "global_missing_skills": best_match["missing_skills"],
         "results": final_results,
         "ai_analysis": ai_markdown_output  
     }
 
-    # 💾 CLOUD DATABASE PERSISTENCE FOR ANALYSIS HISTORY
+    # 💾 CLOUD DATABASE PERSISTENCE WITH USER_ID
     if history_collection is not None:
         try:
             db_history_record = {
-                "report_id": str(uuid.uuid4()),
-                "filename": file.filename,
-                "target_role": role,
-                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "match_score": int(best_match["overall_fit"]),
-                "extracted_skills": candidate_skills,
-                "missing_skills": best_match["missing_skills"],
-                "upskilling_roadmap": ai_markdown_output
-            }
+    "user_id": user_id,
+    "report_id": str(uuid.uuid4()),
+    "filename": file.filename,
+    "target_role": role,
+    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    "match_score": int(best_match["overall_fit"]),
+    "skill_match_score": int(best_match["skill_match"]),
+    "similarity_score": int(best_match["similarity"]),
+    "missing_skills": best_match["missing_skills"],
+    "ai_analysis": ai_markdown_output,
+    "resume_snapshot": raw_text[:500],
+    "results": final_results # <--- ADD THIS. This stores the list of jobs.
+}
             history_collection.insert_one(db_history_record)
-            print("💾 Metric report stored successfully inside MongoDB Atlas Cloud.")
+            print(f"💾 Metric report stored for user: {user_id}")
         except Exception as write_err:
-            print(f"⚠️ Could not write backup tracking history frame: {write_err}")
+            print(f"⚠️ Could not write tracking history: {write_err}")
 
     return payload_response
 
@@ -315,31 +322,31 @@ async def run_ai_deep_dive(request: AIAnalysisRequest):
 
 
 @app.get("/api/history", tags=["Analysis Core"])
-async def get_analysis_history():
+async def get_analysis_history(user_id: str = Query(...)):
+    """
+    Retrieves analysis history records filtered strictly by user_id.
+    """
     if history_collection is not None:
         try:
-            cursor = history_collection.find({}, {"_id": 0}).sort("date", -1).limit(10)
-            history_list = list(cursor)
-            if history_list:
-                return {"status": "success", "history": history_list}
-        except Exception as read_err:
-            print(f"⚠️ Error pulling history collections: {read_err}")
+            # 🔍 FILTER: We now query only for the specific user_id passed from the frontend
+            query = {"user_id": user_id}
             
-    # Mock fallback baseline so the UI dashboard renders beautifully even if database connectivity drops out
+            # Retrieve from MongoDB and sort by date descending
+            cursor = history_collection.find(query, {"_id": 0}).sort("date", -1).limit(10)
+            history_list = list(cursor)
+            
+            # Return the user's specific history
+            return {"status": "success", "history": history_list}
+            
+        except Exception as read_err:
+            print(f"⚠️ Error pulling history collections for user {user_id}: {read_err}")
+            return {"status": "error", "message": "Could not fetch history."}
+            
+    # Fallback response if database is unavailable
     return {
-        "status": "success",
-        "history": [{
-            "report_id": "seed-01",
-            "filename": "Shivmidhin_CV.pdf",
-            "target_role": "Full Stack Developer",
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "match_score": 85,
-            "extracted_skills": ["Python", "SQL", "React.js", "FastAPI"],
-            "missing_skills": ["MongoDB", "Express"],
-            "upskilling_roadmap": "### System Roadmap\n1. Establish robust cross-origin backend connectivity routing paths."
-        }]
+        "status": "success", 
+        "history": [] # Return empty instead of mock data so it doesn't confuse the user
     }
-
 # =========================================================================
 # 🚀 CORE ENGINE EXECUTION LAUNCHPAD
 # =========================================================================
