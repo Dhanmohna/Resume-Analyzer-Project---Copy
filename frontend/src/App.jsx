@@ -32,7 +32,7 @@ function App() {
   const fetchHistory = useCallback(async (uid) => {
     if (!uid) return;
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/history?user_id=${uid}`);
+      const response = await fetch(`https://resume-analyzer-backend-rqp7.onrender.com/api/history?user_id=${uid}`);
       const data = await response.json();
       if (data.status === "success") {
         setHistoryList(data.history || []);
@@ -86,7 +86,7 @@ function App() {
     }
     try {
       const endpoint = actionType === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const res = await fetch(`http://127.0.0.1:8000${endpoint}`, {
+      const res = await fetch(`https://resume-analyzer-backend-rqp7.onrender.com${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -142,7 +142,7 @@ function App() {
     form.append('file', uploadedFile);
     form.append('user_id', uid);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/analyze', { method: 'POST', body: form });
+      const res = await fetch('https://resume-analyzer-backend-rqp7.onrender.com/api/analyze', { method: 'POST', body: form });
       if (!res.ok) throw new Error(`Server status ${res.status}`);
       const data = await res.json();
       if (data.status === 'success') {
@@ -162,7 +162,7 @@ function App() {
     if (aiResponse) return;
     setAiLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/ai-deep-dive', {
+      const res = await fetch('https://resume-analyzer-backend-rqp7.onrender.com/api/ai-deep-dive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resume_text: processedResults[0]?.description || "Baseline", target_role: jobRole })
